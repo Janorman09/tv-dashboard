@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1e29;--panel:#162b3a;--line:#2a4457;--text:#f0f4f1;--dim:#93a9b6;--amber:#f2b84b;--teal:#6fd1c0}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:"Bricolage Grotesque",system-ui,sans-serif;padding:2.2vh 2.2vw;cursor:none;overflow:hidden}
+.grid{height:100%;display:grid;grid-template-columns:1.15fr 1fr 1fr;grid-template-rows:1.35fr 1fr;gap:2vh 1.6vw}
+.panel{background:var(--panel);border-radius:1.4vh;padding:2.4vh 1.8vw;overflow:hidden;display:flex;flex-direction:column}
+h2{font-size:2.1vh;font-weight:600;color:var(--dim);margin-bottom:1.6vh}
+.time{grid-row:1;grid-column:1}
+.clock{font-size:15vh;font-weight:800;line-height:1;letter-spacing:-.03em}
+.date{font-size:3.4vh;color:var(--amber);margin-top:1vh;font-weight:600}
+.wx{display:flex;align-items:baseline;gap:1.4vw;margin-top:auto}
+.temp{font-size:11vh;font-weight:800;line-height:1}
+.cond{font-size:3vh}
+.sub{font-size:2.3vh;color:var(--dim);margin-top:.6vh}
+.sched{grid-row:1/3;grid-column:2}
+.ev{display:flex;gap:1.2vw;padding:1.5vh 0;border-bottom:1px solid var(--line);font-size:3vh;align-items:baseline}
+.ev:last-child{border:0}
+.ev .t{width:9vw;color:var(--amber);font-weight:600;flex:none}
+.ev.past{opacity:.35}
+.loc{color:var(--dim);font-size:2.2vh}
+.scores{grid-row:1/3;grid-column:3}
+.game{padding:1.4vh 0;border-bottom:1px solid var(--line)}
+.game:last-child{border:0}
+.row{display:flex;justify-content:space-between;font-size:2.9vh;font-weight:600}
+.row.win{color:var(--teal)}
+.st{font-size:2vh;color:var(--dim);margin-top:.5vh}
+.fit{grid-row:2;grid-column:1}
+.bar{margin-bottom:1.8vh}
+.bar .lab{display:flex;justify-content:space-between;font-size:2.5vh;margin-bottom:.6vh}
+.track{height:1.4vh;background:var(--line);border-radius:1vh;overflow:hidden}
+.fill{height:100%;background:var(--teal);border-radius:1vh}
+.empty{color:var(--dim);font-size:2.4vh}
+@media (max-width:900px){body{overflow:auto}.grid{display:block}.panel{margin-bottom:2vh}.clock{font-size:12vw}}
+</style>
+</head>
+<body>
+<div class="grid">
+
+  <section class="panel time">
+    <div class="clock" id="clock">--:--</div>
+    <div class="date" id="date"></div>
+    <div class="wx">
+      <div class="temp" id="temp">--°</div>
+      <div>
+        <div class="cond" id="cond">Loading weather…</div>
+        <div class="sub" id="wxsub"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel sched">
+    <h2>Today</h2>
+    <div id="events"></div>
+  </section>
+
+  <section class="panel scores">
+    <h2>Scores</h2>
+    <div id="games"><div class="empty">Loading scores…</div></div>
+  </section>
+
+  <section class="panel fit">
+    <h2>Fitness</h2>
+    <div id="fit"></div>
+  </section>
+
+</div>
+
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const WX = {0:"Clear",1:"Mostly clear",2:"Partly cloudy",3:"Overcast",45:"Fog",48:"Fog",51:"Light drizzle",53:"Drizzle",55:"Heavy drizzle",
+  61:"Light rain",63:"Rain",65:"Heavy rain",66:"Freezing rain",67:"Freezing rain",71:"Light snow",73:"Snow",75:"Heavy snow",77:"Snow grains",
+  80:"Rain showers",81:"Rain showers",82:"Heavy showers",85:"Snow showers",86:"Snow showers",95:"Thunderstorm",96:"Thunderstorm",99:"Thunderstorm"};
+
+function tick(){
+  const n = new Date();
+  $("clock").textContent = n.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}).replace(/\s?[AP]M/i,"");
+  $("date").textContent = n.toLocaleDateString([], {weekday:"long", month:"long", day:"numeric"});
+  renderSchedule(n);
+}
+
+let CAL = null;
+const esc = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = d => d.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
+
+function renderSchedule(n){
+  let items;
+  if(CAL){
+    items = CAL.map(e => {
+      const s = new Date(e.start), en = new Date(e.end);
+      return {sort: e.allDay ? -1 : s.getTime(), label: e.allDay ? "All day" : fmt(s),
+              title: esc(e.title) + (e.location ? `<span class="loc"> · ${esc(e.location.split(",")[0])}</span>` : ""),
+              past: !e.allDay && en < n};
+    });
+  } else {
+    const mins = n.getHours()*60 + n.getMinutes();
+    items = CONFIG.schedule.filter(e => e.day === undefined || e.day === n.getDay()).map(e => {
+      const [h,m] = e.time.split(":").map(Number);
+      return {sort: h*60+m, label: fmt(new Date(2000,0,1,h,m)), title: esc(e.title), past: h*60+m < mins};
+    });
+  }
+  items.sort((a,b) => a.sort - b.sort);
+  $("events").innerHTML = items.length
+    ? items.map(e => `<div class="ev ${e.past ? "past":""}"><span class="t">${e.label}</span><span>${e.title}</span></div>`).join("")
+    : `<div class="empty">Nothing scheduled today.</div>`;
+}
+
+async function loadCalendar(){
+  if(!CONFIG.calendarUrl) return;
+  try{
+    const r = await fetch(CONFIG.calendarUrl);
+    CAL = await r.json();
+    if(!Array.isArray(CAL)) throw new Error("bad response");
+    renderSchedule(new Date());
+  }catch(e){
+    $("events").innerHTML = `<div class="empty">Couldn't load your calendar. Check the URL in CONFIG.</div>`;
+    CAL = null;
+  }
+}
+
+async function loadWeather(){
+  try{
+    const f = CONFIG.units === "celsius" ? "celsius" : "fahrenheit";
+    const u = `https://api.open-meteo.com/v1/forecast?latitude=${CONFIG.lat}&longitude=${CONFIG.lon}`
+      + `&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m`
+      + `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max`
+      + `&temperature_unit=${f}&wind_speed_unit=mph&timezone=auto&forecast_days=1`;
+    const d = await (await fetch(u)).json();
+    $("temp").textContent = Math.round(d.current.temperature_2m) + "°";
+    $("cond").textContent = WX[d.current.weather_code] || "—";
+    $("wxsub").textContent = `High ${Math.round(d.daily.temperature_2m_max[0])}° · Low ${Math.round(d.daily.temperature_2m_min[0])}° · `
+      + `${d.daily.precipitation_probability_max[0]}% rain · feels ${Math.round(d.current.apparent_temperature)}°`;
+  }catch(e){ $("cond").textContent = "Weather unavailable"; $("wxsub").textContent = "Check your internet connection."; }
+}
+
+async function loadScores(){
+  const out = [];
+  await Promise.all(CONFIG.teams.map(async t => {
+    try{
+      const d = await (await fetch(`https://site.api.espn.com/apis/site/v2/sports/${t.league}/scoreboard`)).json();
+      (d.events || []).forEach(ev => {
+        const c = ev.competitions[0].competitors;
+        if(!c.some(x => x.team.displayName.includes(t.match))) return;
+        out.push({ev, c, state: ev.status.type.state});
+      });
+    }catch(e){}
+  }));
+  const rank = {in:0, pre:1, post:2};
+  out.sort((a,b) => rank[a.state] - rank[b.state]);
+  $("games").innerHTML = out.length ? out.map(({ev,c,state}) => {
+    const best = Math.max(...c.map(x => +x.score || 0));
+    const rows = c.map(x => `<div class="row ${state==="post" && +x.score===best ? "win":""}"><span>${x.team.displayName}</span><span>${state==="pre" ? "" : x.score}</span></div>`).join("");
+    const when = state==="pre" ? new Date(ev.date).toLocaleString([], {weekday:"short", hour:"numeric", minute:"2-digit"}) : ev.status.type.shortDetail;
+    return `<div class="game">${rows}<div class="st">${when}</div></div>`;
+  }).join("") : `<div class="empty">No games for your teams right now.</div>`;
+}
+
+function renderFitness(){
+  $("fit").innerHTML = CONFIG.fitness.map(f => {
+    const pct = Math.min(100, Math.round(f.value / f.goal * 100));
+    return `<div class="bar"><div class="lab"><span>${f.label}</span><span>${f.value.toLocaleString()}${f.unit} / ${f.goal.toLocaleString()}${f.unit}</span></div><div class="track"><div class="fill" style="width:${pct}%"></div></div></div>`;
+  }).join("");
+}
+
+tick(); setInterval(tick, 1000);
+renderFitness();
+loadCalendar(); setInterval(loadCalendar, 5*60000);
+loadWeather(); setInterval(loadWeather, CONFIG.refreshMinutes.weather*60000);
+loadScores();  setInterval(loadScores,  CONFIG.refreshMinutes.scores*60000);
+</script>
+</body>
+</html>
